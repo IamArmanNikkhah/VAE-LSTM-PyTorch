@@ -187,7 +187,7 @@ class Decoder(nn.Module):
 
 ######################################################
 #                                                    #
-#                   DECODER                          #
+#                     LSTM                           #
 #                                                    #
 ######################################################
 
@@ -237,7 +237,8 @@ class lstmPyTorchModel(nn.Module):
         self.x_test = self.embedding_lstm_test[:, :self.l_seq - 1]
         self.y_test = self.embedding_lstm_test[:, 1:]
 
-      def train(self, cp_callback):
+      
+    def train(self, cp_callback):
         optimizer = optim.Adam(self.parameters(), lr=self.config['learning_rate_lstm'])
         criterion = nn.MSELoss()
 
@@ -271,7 +272,7 @@ class lstmPyTorchModel(nn.Module):
         print('Training finished.')
 
 
-      def plot_reconstructed_lt_seq(self, idx_test, model_vae, data, device):
+    def plot_reconstructed_lt_seq(self, idx_test, model_vae, data, device):
         with torch.no_grad():
             # VAE reconstruction
             input_signal = torch.zeros((self.l_seq, self.l_win, self.config['n_channel']), device=device)
@@ -314,7 +315,7 @@ class lstmPyTorchModel(nn.Module):
         plt.close()
 
 
-      def plot_lstm_embedding_prediction(self, idx_test, config, model_vae, data, device):
+    def plot_lstm_embedding_prediction(self, idx_test, config, model_vae, data, device):
         self.plot_reconstructed_lt_seq(idx_test, config, model_vae, data, device)
 
         fig, axs = plt.subplots(2, self.code_size // 2, figsize=(15, 5.5), edgecolor='k')
