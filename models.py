@@ -196,7 +196,6 @@ class Decoder(nn.Module):
 ######################################################
 
 
-
 class lstmPyTorchModel(nn.Module):
     def __init__(self, config):
         super(lstmPyTorchModel, self).__init__()
@@ -337,3 +336,60 @@ class lstmPyTorchModel(nn.Module):
                 axs[i].legend(('VAE\nembedding', 'LSTM\nembedding'))
         plt.savefig(f"{config['result_dir']}lstm_seq_embedding_{idx_test}.pdf")
         plt.close()
+
+
+
+
+######################################################
+#                                                    #
+#                   VAE Model                        #
+#                                                    #
+######################################################
+        
+
+class VAEmodel(BaseModel):
+    def __init__(self, config):
+        super(VAEmodel, self).__init__(config)
+        self.input_dims = self.config['l_win'] * self.config['n_channel']
+        self.config = config
+        self.define_iterator()
+        self.build_model()
+        self.define_loss()
+        self.training_variables()
+        self.compute_gradients()
+        self.init_saver()
+
+    def define_iterator(self):
+        self.original_signal = tf.placeholder(tf.float32, [None, self.config['l_win'], self.config['n_channel']])
+        self.seed = tf.placeholder(tf.int64, shape=())
+        self.dataset = tf.data.Dataset.from_tensor_slices(self.original_signal)
+        self.dataset = self.dataset.shuffle(buffer_size=60000, seed=self.seed)
+        self.dataset = self.dataset.repeat(8000)
+        self.dataset = self.dataset.batch(self.config['batch_size'], drop_remainder=True)
+        self.iterator = self.dataset.make_initializable_iterator()
+        self.input_image = self.iterator.get_next()
+        self.code_input = tf.placeholder(tf.float32, [None, self.config['code_size']])
+        self.is_code_input = tf.placeholder(tf.bool)
+        self.sigma2_offset = tf.constant(self.config['sigma2_offset'])
+
+    def build_model(self):
+        self.decoder = Decoder(self.config)
+        print("finish building decoder\n")
+        self.encoder = Encoder(self.config)
+        print("finish building encoder\n")
+
+
+        # define sigma2 parameter to be trained to optimize ELBO
+        
+        if self.config['TRAIN_sigma'] == 1:
+            sigma = torch.nn.Parameter(torch.tensor(self.config['sigma'], dtype=torch.float32))
+        
+        else:
+            sigma = torch.tensor(self.config['sigma'], dtype=torch.float32)
+        
+        self.sigma2 = torch.square(sigma)
+        
+        if self.config['TRAIN_sigma'] == 1:
+            self.sigma2 = self.sigma2 + self.sigma2_offset
+
+        print("sigma2: \n{}\n".format(self.sigma2))
