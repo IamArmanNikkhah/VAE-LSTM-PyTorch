@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import figure, plot, savefig
+import torch
+from torch.utils.data import DataLoader, TensorDataset
 import time
 
 
@@ -145,7 +147,7 @@ class Decoder(nn.Module):
             decoded = self.conv5(decoded_5)
             print("decoded_6 is: {}".format(decoded.size()))
 
-            self.decoded = decoded.view(-1, self.l_win, self.n_channel)
+            decoded = decoded.view(-1, self.l_win, self.n_channel)
 
         if self.l_win == 48:
             decoded_2 = F.leaky_relu(self.conv_1(decoded_1))
@@ -170,21 +172,21 @@ class Decoder(nn.Module):
             decoded = self.conv_5(decoded_5)
             print("decoded_6 is: {}".format(decoded.size()))
 
-            self.decoded = decoded.view(-1, self.l_win, self.n_channel)
+            decoded = decoded.view(-1, self.l_win, self.n_channel)
 
 
-        if self.TRAIN_sigma == 1:
-          self.sigma2 = nn.Parameter(torch.tensor(self.sigma ** 2, dtype=torch.float32), requires_grad=True)
+        #if self.TRAIN_sigma == 1:
+        #  self.sigma2 = nn.Parameter(torch.tensor(self.sigma ** 2, dtype=torch.float32), requires_grad=True)
 
-        else:
-          self.sigma2 = torch.tensor(self.sigma ** 2, dtype=torch.float32)
+        #else:
+        #  self.sigma2 = torch.tensor(self.sigma ** 2, dtype=torch.float32)
 
-        self.sigma2 = torch.add(self.sigma2, self.sigma2_offset)
+        #self.sigma2 = torch.add(self.sigma2, self.sigma2_offset)
 
         print("finish decoder: \n{}".format(self.decoded.size()))
         print('\n')
 
-        return self.decoded, self.sigma2
+        return decoded
 
 
 
@@ -372,15 +374,34 @@ class VAEmodel(BaseModel):
         self.is_code_input = tf.placeholder(tf.bool)
         self.sigma2_offset = tf.constant(self.config['sigma2_offset'])
 
-    def build_model(self):
-        self.decoder = Decoder(self.config)
-        print("finish building decoder\n")
-        self.encoder = Encoder(self.config)
-        print("finish building encoder\n")
 
 
-        # define sigma2 parameter to be trained to optimize ELBO
-        
+class VAEmodel(BaseModel):
+    def __init__(self, config):
+        super(VAEmodel, self).__init__(config)
+        self.input_dims = self.config['l_win'] * self.config['n_channel']
+
+        # Initialize encoder and decoder networks
+        self.encoder = Encoder(config)
+        self.decoder = Decoder(config)
+
+        self.original_signal = torch.tensor(self.original_signal, dtype=torch.float32)
+
+        # Create PyTorch dataset
+        dataset = TensorDataset(self.original_signal)
+
+        # Create PyTorch DataLoader with shuffling and batching
+        self.dataloader = DataLoader(
+            dataset,
+            batch_size=self.config['batch_size'],
+            shuffle=True,
+            drop_last=True,
+        )
+
+        # Convert sigma2_offset to PyTorch tensor
+        self.sigma2_offset = torch.tensor(self.config['sigma2_offset'], dtype=torch.float32)
+
+        # define sigma2 parameter to be trained to optimize ELBO        
         if self.config['TRAIN_sigma'] == 1:
             sigma = torch.nn.Parameter(torch.tensor(self.config['sigma'], dtype=torch.float32))
         
@@ -393,3 +414,56 @@ class VAEmodel(BaseModel):
             self.sigma2 = self.sigma2 + self.sigma2_offset
 
         print("sigma2: \n{}\n".format(self.sigma2))
+
+    
+
+    def calculate_loss(self, ):
+        # KL divergence loss - analytical result
+        KL_loss = 0.5 * (torch.sum(self.code_mean ** 2, dim=1)
+                         + torch.sum(self.code_std_dev ** 2, dim=1)
+                         - torch.sum(torch.log(self.code_std_dev ** 2), dim=1)
+                         - self.config['code_size'])
+        self.KL_loss = torch.mean(KL_loss)
+
+        # norm 1 of standard deviation of the sample-wise encoder prediction
+        self.std_dev_norm = torch.mean(self.code_std_dev, dim=0)
+
+        weighted_reconstruction_error_dataset = torch.sum(
+            (self.original_signal - self.decoded) ** 2, dim=[1, 2])
+        weighted_reconstruction_error_dataset = torch.mean(weighted_reconstruction_error_dataset)
+        self.weighted_reconstruction_error_dataset = weighted_reconstruction_error_dataset / (2 * self.sigma2)
+
+        # least squared reconstruction error
+        ls_reconstruction_error = torch.sum(
+            (self.original_signal - self.decoded) ** 2, dim=[1, 2])
+        self.ls_reconstruction_error = torch.mean(ls_reconstruction_error)
+
+        # sigma regularisor - input elbo
+        self.sigma_regularisor_dataset = self.input_dims / 2 * torch.log(self.sigma2)
+        two_pi = self.input_dims / 2 * self.two_pi
+
+        self.elbo_loss = two_pi + self.sigma_regularisor_dataset + \
+                         0.5 * self.weighted_reconstruction_error_dataset + self.KL_loss
+
+
+
+    def forward(self, x, is_code_input, code_input):
+        """
+        Performs the forward pass through the VAE model.
+
+        :param x: Input time series window.
+        :param is_code_input: Boolean indicating whether to use code_input or sample from the latent space.
+        :param code_input: Optional code input for the decoder.
+
+        Returns the decoded time series window, code mean, and code standard deviation.
+        """
+        if is_code_input:
+            code_sample = code_input
+            code_mean = None
+            code_std_dev = None
+        else:
+            code_sample, code_mean, code_std_dev = self.encoder(x)
+
+        decoded, sigma2 = self.decoder(code_input=code_input, code_sample=code_sample)
+
+        return decoded, code_mean, code_std_dev, sigma2
