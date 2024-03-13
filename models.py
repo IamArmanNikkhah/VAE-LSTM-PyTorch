@@ -415,37 +415,6 @@ class VAEmodel(BaseModel):
 
         print("sigma2: \n{}\n".format(self.sigma2))
 
-    
-
-    def calculate_loss(self, ):
-        # KL divergence loss - analytical result
-        KL_loss = 0.5 * (torch.sum(self.code_mean ** 2, dim=1)
-                         + torch.sum(self.code_std_dev ** 2, dim=1)
-                         - torch.sum(torch.log(self.code_std_dev ** 2), dim=1)
-                         - self.config['code_size'])
-        self.KL_loss = torch.mean(KL_loss)
-
-        # norm 1 of standard deviation of the sample-wise encoder prediction
-        self.std_dev_norm = torch.mean(self.code_std_dev, dim=0)
-
-        weighted_reconstruction_error_dataset = torch.sum(
-            (self.original_signal - self.decoded) ** 2, dim=[1, 2])
-        weighted_reconstruction_error_dataset = torch.mean(weighted_reconstruction_error_dataset)
-        self.weighted_reconstruction_error_dataset = weighted_reconstruction_error_dataset / (2 * self.sigma2)
-
-        # least squared reconstruction error
-        ls_reconstruction_error = torch.sum(
-            (self.original_signal - self.decoded) ** 2, dim=[1, 2])
-        self.ls_reconstruction_error = torch.mean(ls_reconstruction_error)
-
-        # sigma regularisor - input elbo
-        self.sigma_regularisor_dataset = self.input_dims / 2 * torch.log(self.sigma2)
-        two_pi = self.input_dims / 2 * self.two_pi
-
-        self.elbo_loss = two_pi + self.sigma_regularisor_dataset + \
-                         0.5 * self.weighted_reconstruction_error_dataset + self.KL_loss
-
-
 
     def forward(self, x, is_code_input, code_input):
         """
