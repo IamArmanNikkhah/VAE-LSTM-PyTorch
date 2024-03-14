@@ -27,12 +27,20 @@ class BaseModel(nn.Module):
 
         self.encoder = None
         self.decoder = None
+        self.sigma2  = None
+
+        self.train_vars_VAE = self.training_variables()
+
+        self.lr        = 1 ###CHECK
+        self.optimizer = torch.optim.Adam(self.train_vars_VAE, lr=self.lr, betas=(0.9, 0.95))
+        
 
     def save(self, checkpoint_path):
         print("Saving model...")
         torch.save(self.state_dict(), checkpoint_path)
         print("Model saved.")
 
+    
     def load(self, checkpoint_path):
         print("checkpoint_dir at loading: {}".format(checkpoint_path))
         if os.path.exists(checkpoint_path):
@@ -42,51 +50,55 @@ class BaseModel(nn.Module):
         else:
             print("No model loaded.")
 
+    
     def calculate_loss(self, original_signal, decoded, code_mean, code_std_dev, sigma2):
         # KL divergence loss - analytical result
         KL_loss = 0.5 * (torch.sum(code_mean ** 2, dim=1)
                          + torch.sum(code_std_dev ** 2, dim=1)
                          - torch.sum(torch.log(code_std_dev ** 2), dim=1)
                          - self.config['code_size'])
-        self.KL_loss = torch.mean(KL_loss)
+        KL_loss = torch.mean(KL_loss)
 
         # norm 1 of standard deviation of the sample-wise encoder prediction
-        self.std_dev_norm = torch.mean(code_std_dev, dim=0)
+        std_dev_norm = torch.mean(code_std_dev, dim=0) # Check here Later !!!!
 
         weighted_reconstruction_error_dataset = torch.sum(
             (original_signal - decoded) ** 2, dim=[1, 2])
         weighted_reconstruction_error_dataset = torch.mean(weighted_reconstruction_error_dataset)
-        self.weighted_reconstruction_error_dataset = weighted_reconstruction_error_dataset / (2 * sigma2)
+        weighted_reconstruction_error_dataset = weighted_reconstruction_error_dataset / (2 * sigma2)
 
         # least squared reconstruction error
         ls_reconstruction_error = torch.sum(
             (original_signal - decoded) ** 2, dim=[1, 2])
-        self.ls_reconstruction_error = torch.mean(ls_reconstruction_error)
+        ls_reconstruction_error = torch.mean(ls_reconstruction_error)
 
         # sigma regularisor - input elbo
-        self.sigma_regularisor_dataset = self.input_dims / 2 * torch.log(sigma2)
+        sigma_regularisor_dataset = self.input_dims / 2 * torch.log(sigma2)
         two_pi = self.input_dims / 2 * self.two_pi
 
-        self.elbo_loss = two_pi + self.sigma_regularisor_dataset + \
-                         0.5 * self.weighted_reconstruction_error_dataset + self.KL_loss
+        elbo_loss = two_pi + sigma_regularisor_dataset + \
+                         0.5 * weighted_reconstruction_error_dataset + KL_loss
         
-        return self.elbo_loss
+        return elbo_loss
 
     def training_variables(self):
         encoder_vars = list(self.encoder.parameters())
         decoder_vars = list(self.decoder.parameters())
         sigma_vars = [self.sigma2]
-        self.train_vars_VAE = encoder_vars + decoder_vars + sigma_vars
+        train_vars_VAE = encoder_vars + decoder_vars + sigma_vars
 
         num_encoder = sum(p.numel() for p in self.encoder.parameters() if p.requires_grad)
         num_decoder = sum(p.numel() for p in self.decoder.parameters() if p.requires_grad)
         num_sigma2 = self.sigma2.numel()
-        self.num_vars_total = num_decoder + num_encoder + num_sigma2
-        print("Total number of trainable parameters in the VAE network is: {}".format(self.num_vars_total))
-        return self.num_vars_total
+        
+        num_vars_total = num_decoder + num_encoder + num_sigma2
+        
+        print("Total number of trainable parameters in the VAE network is: {}".format(num_vars_total))
+        
+        return train_vars_VAE
 
     def compute_gradients(self):
-        self.optimizer = torch.optim.Adam(self.train_vars_VAE, lr=self.lr, betas=(0.9, 0.95))
+        
         self.train_step_gradient = self.optimizer.step()
         print("Reach the definition of loss for VAE")
 
