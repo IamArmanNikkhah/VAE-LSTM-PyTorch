@@ -19,11 +19,11 @@ class Encoder(nn.Module):
     def __init__(self, config):
         super(Encoder, self).__init__()
 
-        self.config = config
+        self.config      = config
         num_hidden_units = self.config['num_hidden_units']
-        n_channel = self.config['n_channel']
-        code_size = self.config['code_size']
-        self.l_win = config['l_win']
+        n_channel        = self.config['n_channel']
+        code_size        = self.config['code_size']
+        self.l_win       = config['l_win']
 
         self.conv1 = nn.Conv2d(in_channels=n_channel, out_channels=num_hidden_units // 16, kernel_size=(3, n_channel), stride=(2, 1), padding='same')
         self.conv2 = nn.Conv2d(num_hidden_units // 16, out_channels=num_hidden_units // 8, kernel_size=(3, n_channel), stride=(2, 1), padding='same')
@@ -31,9 +31,9 @@ class Encoder(nn.Module):
         self.conv4 = nn.Conv2d(num_hidden_units // 4, out_channels=num_hidden_units, kernel_size=(4, n_channel), stride=1, padding='valid')
         self.conv5 = nn.Conv2d(in_channels=num_hidden_units // 4, out_channels=num_hidden_units, kernel_size=(6, n_channel), stride=1, padding='valid')
 
-        self.flatten = nn.Flatten()
-        self.fc1 = nn.Linear(self._get_conv_output_shape(), code_size * 4)
-        self.code_mean = nn.Linear(code_size * 4, code_size)
+        self.flatten      = nn.Flatten()
+        self.fc1          = nn.Linear(self._get_conv_output_shape(), code_size * 4)
+        self.code_mean    = nn.Linear(code_size * 4, code_size)
         self.code_std_dev = nn.Linear(code_size * 4, code_size)
 
     def forward(self, x):
@@ -91,17 +91,17 @@ class Decoder(nn.Module):
     def __init__(self, config):
         super(Decoder, self).__init__()
         self.config = config
-        self.is_code_input = config['is_code_input']  # Assuming this is determined elsewhere in your code
+        self.is_code_input    = False  # Assuming this is determined elsewhere in your code
         self.num_hidden_units = config['num_hidden_units']
-        self.n_channel = config['n_channel']
-        self.l_win = config['l_win']
-        self.code_size = config['code_size']
-        self.TRAIN_sigma = config['TRAIN_sigma']
-        self.sigma = config['sigma']
-        self.sigma2_offset = config['sigma2_offset']
+        self.n_channel        = config['n_channel']
+        self.l_win            = config['l_win']
+        self.code_size        = config['code_size']
+        self.TRAIN_sigma      = config['TRAIN_sigma']
+        self.sigma            = config['sigma']
+        self.sigma2_offset    = config['sigma2_offset']
 
         # Layers
-        self.fc1 = nn.Linear(self.code_size, self.num_hidden_units)
+        self.fc1   = nn.Linear(self.code_size, self.num_hidden_units)
         self.conv1 = nn.Conv2d(self.num_hidden_units, self.num_hidden_units, kernel_size=1, padding='same')
         self.conv2 = nn.Conv2d(self.num_hidden_units // 4, self.num_hidden_units // 4, kernel_size=(3, 1), stride=1, padding='same')
         self.conv3 = nn.Conv2d(self.num_hidden_units // 8, self.num_hidden_units // 8, kernel_size=(3, 1), stride=1, padding='same')
@@ -114,7 +114,7 @@ class Decoder(nn.Module):
         self.conv_4 = nn.Conv2d(32, 32, kernel_size=(3, 1), stride=1, padding='same')
         self.conv_5 = nn.Conv2d(16, self.n_channel, kernel_size=(5, self.n_channel), stride=1, padding='same')
 
-        # Assuming sigma2 and sigma2_offset are defined in config
+        
 
     def forward(self, code_input=None, code_sample=None):
 
@@ -173,15 +173,6 @@ class Decoder(nn.Module):
             print("decoded_6 is: {}".format(decoded.size()))
 
             decoded = decoded.view(-1, self.l_win, self.n_channel)
-
-
-        #if self.TRAIN_sigma == 1:
-        #  self.sigma2 = nn.Parameter(torch.tensor(self.sigma ** 2, dtype=torch.float32), requires_grad=True)
-
-        #else:
-        #  self.sigma2 = torch.tensor(self.sigma ** 2, dtype=torch.float32)
-
-        #self.sigma2 = torch.add(self.sigma2, self.sigma2_offset)
 
         print("finish decoder: \n{}".format(self.decoded.size()))
         print('\n')
@@ -262,8 +253,8 @@ class lstmPyTorchModel(nn.Module):
 
                 running_loss += loss.item()
 
-            epoch_loss = running_loss / (self.x_train.size(0) // config['batch_size_lstm'])
-            print(f'Epoch {epoch+1}/{config["num_epochs_lstm"]}, Loss: {epoch_loss:.4f}')
+            epoch_loss = running_loss / (self.x_train.size(0) // self.config['batch_size_lstm'])
+            print(f'Epoch {epoch+1}/{self.config["num_epochs_lstm"]}, Loss: {epoch_loss:.4f}')
 
             if cp_callback is not None:
                 cp_callback(self, epoch_loss)
@@ -379,6 +370,7 @@ class VAEmodel(BaseModel):
 class VAEmodel(BaseModel):
     def __init__(self, config):
         super(VAEmodel, self).__init__(config)
+        
         self.input_dims = self.config['l_win'] * self.config['n_channel']
 
         # Initialize encoder and decoder networks
@@ -411,9 +403,10 @@ class VAEmodel(BaseModel):
         self.sigma2 = torch.square(sigma)
         
         if self.config['TRAIN_sigma'] == 1:
-            self.sigma2 = self.sigma2 + self.sigma2_offset
+            self.sigma2 = torch.add(self.sigma2, self.sigma2_offset)
 
         print("sigma2: \n{}\n".format(self.sigma2))
+
 
 
     def forward(self, x, is_code_input, code_input):
@@ -426,13 +419,17 @@ class VAEmodel(BaseModel):
 
         Returns the decoded time series window, code mean, and code standard deviation.
         """
+        self.decoder.is_code_input = is_code_input
+        
         if is_code_input:
             code_sample = code_input
             code_mean = None
             code_std_dev = None
+        
         else:
             code_sample, code_mean, code_std_dev = self.encoder(x)
 
+            
         decoded, sigma2 = self.decoder(code_input=code_input, code_sample=code_sample)
 
         return decoded, code_mean, code_std_dev, sigma2

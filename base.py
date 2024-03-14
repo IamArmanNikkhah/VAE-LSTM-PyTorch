@@ -51,7 +51,7 @@ class BaseModel(nn.Module):
             print("No model loaded.")
 
     
-    def calculate_loss(self, original_signal, decoded, code_mean, code_std_dev, sigma2):
+    def calculate_loss(self, original_signal, decoded, code_mean, code_std_dev):
         # KL divergence loss - analytical result
         KL_loss = 0.5 * (torch.sum(code_mean ** 2, dim=1)
                          + torch.sum(code_std_dev ** 2, dim=1)
@@ -65,7 +65,7 @@ class BaseModel(nn.Module):
         weighted_reconstruction_error_dataset = torch.sum(
             (original_signal - decoded) ** 2, dim=[1, 2])
         weighted_reconstruction_error_dataset = torch.mean(weighted_reconstruction_error_dataset)
-        weighted_reconstruction_error_dataset = weighted_reconstruction_error_dataset / (2 * sigma2)
+        weighted_reconstruction_error_dataset = weighted_reconstruction_error_dataset / (2 * self.sigma2)
 
         # least squared reconstruction error
         ls_reconstruction_error = torch.sum(
@@ -73,7 +73,7 @@ class BaseModel(nn.Module):
         ls_reconstruction_error = torch.mean(ls_reconstruction_error)
 
         # sigma regularisor - input elbo
-        sigma_regularisor_dataset = self.input_dims / 2 * torch.log(sigma2)
+        sigma_regularisor_dataset = self.input_dims / 2 * torch.log(self.sigma2)
         two_pi = self.input_dims / 2 * self.two_pi
 
         elbo_loss = two_pi + sigma_regularisor_dataset + \
@@ -81,6 +81,7 @@ class BaseModel(nn.Module):
         
         return elbo_loss
 
+    
     def training_variables(self):
         encoder_vars = list(self.encoder.parameters())
         decoder_vars = list(self.decoder.parameters())
@@ -97,11 +98,13 @@ class BaseModel(nn.Module):
         
         return train_vars_VAE
 
+    
     def compute_gradients(self):
         
         self.train_step_gradient = self.optimizer.step()
         print("Reach the definition of loss for VAE")
 
+    
     def clip_grad(self, grad):
         if grad is None:
             return grad
