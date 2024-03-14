@@ -1,4 +1,5 @@
 import torch
+import os
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
@@ -18,10 +19,14 @@ import time
 class BaseModel(nn.Module):
     def __init__(self, config):
         super(BaseModel, self).__init__()
-        self.config = config
-        self.two_pi = torch.tensor(2 * np.pi)
+        self.config      = config
+        self.two_pi      = torch.tensor(2 * np.pi)
+        self.input_dims  = None
         self.global_step = 0
-        self.cur_epoch = 0
+        self.cur_epoch   = 0
+
+        self.encoder = None
+        self.decoder = None
 
     def save(self, checkpoint_path):
         print("Saving model...")
@@ -37,33 +42,35 @@ class BaseModel(nn.Module):
         else:
             print("No model loaded.")
 
-    def define_loss(self):
+    def calculate_loss(self, original_signal, decoded, code_mean, code_std_dev, sigma2):
         # KL divergence loss - analytical result
-        KL_loss = 0.5 * (torch.sum(self.code_mean ** 2, dim=1)
-                         + torch.sum(self.code_std_dev ** 2, dim=1)
-                         - torch.sum(torch.log(self.code_std_dev ** 2), dim=1)
+        KL_loss = 0.5 * (torch.sum(code_mean ** 2, dim=1)
+                         + torch.sum(code_std_dev ** 2, dim=1)
+                         - torch.sum(torch.log(code_std_dev ** 2), dim=1)
                          - self.config['code_size'])
         self.KL_loss = torch.mean(KL_loss)
 
         # norm 1 of standard deviation of the sample-wise encoder prediction
-        self.std_dev_norm = torch.mean(self.code_std_dev, dim=0)
+        self.std_dev_norm = torch.mean(code_std_dev, dim=0)
 
         weighted_reconstruction_error_dataset = torch.sum(
-            (self.original_signal - self.decoded) ** 2, dim=[1, 2])
+            (original_signal - decoded) ** 2, dim=[1, 2])
         weighted_reconstruction_error_dataset = torch.mean(weighted_reconstruction_error_dataset)
-        self.weighted_reconstruction_error_dataset = weighted_reconstruction_error_dataset / (2 * self.sigma2)
+        self.weighted_reconstruction_error_dataset = weighted_reconstruction_error_dataset / (2 * sigma2)
 
         # least squared reconstruction error
         ls_reconstruction_error = torch.sum(
-            (self.original_signal - self.decoded) ** 2, dim=[1, 2])
+            (original_signal - decoded) ** 2, dim=[1, 2])
         self.ls_reconstruction_error = torch.mean(ls_reconstruction_error)
 
         # sigma regularisor - input elbo
-        self.sigma_regularisor_dataset = self.input_dims / 2 * torch.log(self.sigma2)
+        self.sigma_regularisor_dataset = self.input_dims / 2 * torch.log(sigma2)
         two_pi = self.input_dims / 2 * self.two_pi
 
         self.elbo_loss = two_pi + self.sigma_regularisor_dataset + \
                          0.5 * self.weighted_reconstruction_error_dataset + self.KL_loss
+        
+        return self.elbo_loss
 
     def training_variables(self):
         encoder_vars = list(self.encoder.parameters())
@@ -76,6 +83,7 @@ class BaseModel(nn.Module):
         num_sigma2 = self.sigma2.numel()
         self.num_vars_total = num_decoder + num_encoder + num_sigma2
         print("Total number of trainable parameters in the VAE network is: {}".format(self.num_vars_total))
+        return self.num_vars_total
 
     def compute_gradients(self):
         self.optimizer = torch.optim.Adam(self.train_vars_VAE, lr=self.lr, betas=(0.9, 0.95))
