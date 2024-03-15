@@ -377,19 +377,6 @@ class VAEmodel(BaseModel):
         self.encoder = Encoder(config)
         self.decoder = Decoder(config)
 
-        self.original_signal = torch.tensor(self.original_signal, dtype=torch.float32)
-
-        # Create PyTorch dataset
-        dataset = TensorDataset(self.original_signal)
-
-        # Create PyTorch DataLoader with shuffling and batching
-        self.dataloader = DataLoader(
-            dataset,
-            batch_size=self.config['batch_size'],
-            shuffle=True,
-            drop_last=True,
-        )
-
         # Convert sigma2_offset to PyTorch tensor
         self.sigma2_offset = torch.tensor(self.config['sigma2_offset'], dtype=torch.float32)
 
@@ -409,7 +396,7 @@ class VAEmodel(BaseModel):
 
 
 
-    def forward(self, x, is_code_input, code_input):
+    def forward(self, x, is_code_input = False, code_input = None):
         """
         Performs the forward pass through the VAE model.
 
@@ -433,3 +420,4 @@ class VAEmodel(BaseModel):
         decoded, sigma2 = self.decoder(code_input=code_input, code_sample=code_sample)
 
         return decoded, code_mean, code_std_dev, sigma2
+    
