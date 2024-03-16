@@ -36,6 +36,37 @@ class Encoder(nn.Module):
         self.code_mean    = nn.Linear(code_size * 4, code_size)
         self.code_std_dev = nn.Linear(code_size * 4, code_size)
 
+    
+    def same_padding(self,x, kernel_size, stride):
+        if isinstance(kernel_size, tuple):
+            kernel_height, kernel_width = kernel_size
+        else:
+            kernel_height = kernel_width = kernel_size
+
+        if isinstance(stride, tuple):
+            stride_height, stride_width = stride
+        else:
+            stride_height = stride_width = stride
+
+        input_size = x.size()
+        
+        out_height = math.ceil(float(input_size[0]) / float(stride_height))
+        out_width  = math.ceil(float(input_size[1]) / float(stride_width))
+
+        pad_along_height = max((out_height - 1) * stride_height + kernel_height - input_size[0], 0)
+        pad_along_width = max((out_width - 1) * stride_width + kernel_width - input_size[1], 0)
+
+        pad_top = pad_along_height // 2
+        pad_bottom = pad_along_height - pad_top
+        pad_left = pad_along_width // 2
+        pad_right = pad_along_width - pad_left
+
+        pad = (pad_left, pad_right, pad_top, pad_bottom)
+        
+        return F.pad(x, pad, mode='replicate')
+    
+    
+    
     def forward(self, x):
         x = x.unsqueeze(1)  # Add channel dimension
 
