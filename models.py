@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.pyplot import figure, plot, savefig
 import torch
 from torch.utils.data import DataLoader, TensorDataset
-import time
+import math
 
 
 ######################################################
@@ -25,14 +25,15 @@ class Encoder(nn.Module):
         code_size        = self.config['code_size']
         self.l_win       = config['l_win']
 
-        self.conv1 = nn.Conv2d(in_channels=n_channel, out_channels=num_hidden_units // 16, kernel_size=(3, n_channel), stride=(2, 1), padding='same')
-        self.conv2 = nn.Conv2d(num_hidden_units // 16, out_channels=num_hidden_units // 8, kernel_size=(3, n_channel), stride=(2, 1), padding='same')
-        self.conv3 = nn.Conv2d(num_hidden_units // 8, out_channels=num_hidden_units // 4, kernel_size=(3, n_channel), stride=(2, 1), padding='same')
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=num_hidden_units // 16, kernel_size=(3, n_channel), stride=(2, 1))
+        self.conv2 = nn.Conv2d(num_hidden_units // 16, out_channels=num_hidden_units // 8, kernel_size=(3, n_channel), stride=(2, 1))
+        self.conv3 = nn.Conv2d(num_hidden_units // 8, out_channels=num_hidden_units // 4, kernel_size=(3, n_channel), stride=(2, 1))
         self.conv4 = nn.Conv2d(num_hidden_units // 4, out_channels=num_hidden_units, kernel_size=(4, n_channel), stride=1, padding='valid')
-        self.conv5 = nn.Conv2d(in_channels=num_hidden_units // 4, out_channels=num_hidden_units, kernel_size=(6, n_channel), stride=1, padding='valid')
+        self.conv5 = nn.Conv2d(num_hidden_units // 4, out_channels=num_hidden_units, kernel_size=(6, n_channel), stride=1, padding='valid')
+
 
         self.flatten      = nn.Flatten()
-        self.fc1          = nn.Linear(self._get_conv_output_shape(), code_size * 4)
+        self.fc1          = nn.Linear(num_hidden_units, code_size * 4)
         self.code_mean    = nn.Linear(code_size * 4, code_size)
         self.code_std_dev = nn.Linear(code_size * 4, code_size)
 
@@ -49,7 +50,7 @@ class Encoder(nn.Module):
             stride_height = stride_width = stride
 
         input_size = x.size()
-        
+
         out_height = math.ceil(float(input_size[0]) / float(stride_height))
         out_width  = math.ceil(float(input_size[1]) / float(stride_width))
 
@@ -62,32 +63,44 @@ class Encoder(nn.Module):
         pad_right = pad_along_width - pad_left
 
         pad = (pad_left, pad_right, pad_top, pad_bottom)
-        
+
         return F.pad(x, pad, mode='replicate')
     
-    
+
     
     def forward(self, x):
         x = x.unsqueeze(1)  # Add channel dimension
 
-        if self.l_win == 24:
-            x = F.pad(x, (0, 0, 4, 4), mode='reflect')
+        if self.l_win == 24: 
+            x = F.pad(x, (0, 0, 4, 4), mode='replicate')
+            x = self.same_padding(x, (3, self.config['n_channel']), (2, 1))
             x = F.leaky_relu(self.conv1(x))
             print("conv_1:", x.size())
+
+            x = self.same_padding(x, (3, self.config['n_channel']), (2, 1))
             x = F.leaky_relu(self.conv2(x))
             print("conv_2:", x.size())
+
+            x = self.same_padding(x, (3, self.config['n_channel']), (2, 1))
             x = F.leaky_relu(self.conv3(x))
             print("conv_3:", x.size())
+
             x = F.leaky_relu(self.conv4(x))
             print("conv_4:", x.size())
 
         if self.l_win == 48:
-            x = F.leaky_relu(self.conv)
+            x = self.same_padding(x, (3, self.config['n_channel']), (2, 1))
+            x = F.leaky_relu(self.conv1(x))
             print("conv_1:", x.size())
+
+            x = self.same_padding(x, (3, self.config['n_channel']), (2, 1))
             x = F.leaky_relu(self.conv2(x))
             print("conv_2:", x.size())
+
+            x = self.same_padding(x, (3, self.config['n_channel']), (2, 1))
             x = F.leaky_relu(self.conv3(x))
             print("conv_3:", x.size())
+
             x = F.leaky_relu(self.conv5(x))
             print("conv_5:", x.size())
 
@@ -370,33 +383,6 @@ class lstmPyTorchModel(nn.Module):
 #                                                    #
 ######################################################
         
-
-class VAEmodel(BaseModel):
-    def __init__(self, config):
-        super(VAEmodel, self).__init__(config)
-        self.input_dims = self.config['l_win'] * self.config['n_channel']
-        self.config = config
-        self.define_iterator()
-        self.build_model()
-        self.define_loss()
-        self.training_variables()
-        self.compute_gradients()
-        self.init_saver()
-
-    def define_iterator(self):
-        self.original_signal = tf.placeholder(tf.float32, [None, self.config['l_win'], self.config['n_channel']])
-        self.seed = tf.placeholder(tf.int64, shape=())
-        self.dataset = tf.data.Dataset.from_tensor_slices(self.original_signal)
-        self.dataset = self.dataset.shuffle(buffer_size=60000, seed=self.seed)
-        self.dataset = self.dataset.repeat(8000)
-        self.dataset = self.dataset.batch(self.config['batch_size'], drop_remainder=True)
-        self.iterator = self.dataset.make_initializable_iterator()
-        self.input_image = self.iterator.get_next()
-        self.code_input = tf.placeholder(tf.float32, [None, self.config['code_size']])
-        self.is_code_input = tf.placeholder(tf.bool)
-        self.sigma2_offset = tf.constant(self.config['sigma2_offset'])
-
-
 
 class VAEmodel(BaseModel):
     def __init__(self, config):
